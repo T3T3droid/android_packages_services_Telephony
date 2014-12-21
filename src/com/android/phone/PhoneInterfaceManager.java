@@ -1166,6 +1166,10 @@ public class PhoneInterfaceManager extends ITelephony.Stub {
         return getPhone(subId).isDataConnectivityPossible();
     }
 
+    public boolean isDataPossibleForSubscription(long subId, String apnType) {
+        return getPhone(subId).isOnDemandDataPossible(apnType);
+    }
+
     public boolean handlePinMmi(String dialString) {
         return handlePinMmiForSubscriber(getDefaultSubscription(), dialString);
     }
@@ -1631,7 +1635,7 @@ public class PhoneInterfaceManager extends ITelephony.Stub {
      */
     public String getIccOperatorNumeric(long subId) {
         String iccOperatorNumeric = null;
-        int netType = getDataNetworkTypeForSubscriber(subId);
+        int netType = getPhone(subId).getServiceState().getRilDataRadioTechnology();
         int family = UiccController.getFamilyFromRadioTechnology(netType);
         if (UiccController.APP_FAM_UNKNOWN == family) {
             int phoneType = getActivePhoneTypeForSubscriber(subId);

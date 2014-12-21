@@ -892,7 +892,8 @@
     <string name="tty_mode_option_summary">Set TTY mode</string>
     <string name="auto_retry_mode_title">Auto-retry</string>
     <string name="auto_retry_mode_summary">Enable Auto-retry mode</string>
-
+    <!-- TTY Mode change is NOT allowed during a VT call -->
+    <string name="tty_mode_not_allowed_vt_call">TTY Mode change is not allowed during a VT call</string>
     <!-- FDN list screen: menu item label -->
     <string name="menu_add">Add contact</string>
     <!-- FDN list screen: menu item label -->
@@ -952,6 +953,8 @@
     <!-- Appears when user tries to import contacts in SIM during Airplane mode
       [CHAR LIMIT=NONE] -->
     <string name="simContacts_airplaneMode">To import contacts from the SIM card, first turn off Airplane mode.</string>
+    <!-- Call settings: title of the dialog shown for SIM contact related operations. -->
+    <string name="Result_title">Result...</string>
 
     <!-- SIM PIN strings -->
     <!-- Title of "Enable/disable SIM PIN" screen -->
@@ -1271,7 +1274,14 @@
     </string-array>
 
     <!-- Title for the dialog used to display CDMA DisplayInfo -->
-    <string name="network_message">Network message</string>
+    <string name="network_info_message">Network message</string>
+    <!-- Title for the dialog used to display a network error message to the user -->
+    <string name="network_error_message">Error message</string>
+
+    <!-- Shown in "Managed Roaming" dialog when registration is denied with rejCode 10. -->
+    <string name="managed_roaming_title">Managed Roaming</string>
+    <string name="managed_roaming_title_sub">Managed Roaming (SUB<xliff:g id="index" example="1">%d</xliff:g>)</string>
+    <string name="managed_roaming_dialog_content">Network with Limited Service found. Do you want to initiate a Network Search?</string>
 
     <!-- OTA-specific strings -->
     <!-- Title shown on OTA screen -->
@@ -1475,6 +1485,8 @@
     <string name="dial"> Dial</string>
     <string name="enterName"> Enter Name:</string>
     <string name="enterNumber"> Enter Phone Number:</string>
+    <string name="hintName">Name.</string>
+    <string name="hintPhonenumber">Phone Number.</string>
     <string name="contactAddSuccess"> Succesfully added contact to SIM </string>
     <string name="contactAddFailed"> Failed to add contact to SIM !!!</string>
     <string name="contactUpdateSuccess"> Succesfully updated contact in SIM </string>

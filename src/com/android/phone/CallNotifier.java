@@ -25,6 +25,7 @@ import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.PhoneBase;
 import com.android.internal.telephony.TelephonyCapabilities;
+import com.android.internal.telephony.TelephonyIntents;
 import com.android.internal.telephony.cdma.CdmaInformationRecords.CdmaDisplayInfoRec;
 import com.android.internal.telephony.cdma.CdmaInformationRecords.CdmaSignalInfoRec;
 import com.android.internal.telephony.cdma.SignalToneUtil;
@@ -33,7 +34,10 @@ import android.app.ActivityManagerNative;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothHeadset;
 import android.bluetooth.BluetoothProfile;
+import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.media.AudioAttributes;
 import android.media.AudioManager;
 import android.media.ToneGenerator;
@@ -66,8 +70,8 @@ public class CallNotifier extends Handler {
             (PhoneGlobals.DBG_LEVEL >= 1) && (SystemProperties.getInt("ro.debuggable", 0) == 1);
     private static final boolean VDBG = (PhoneGlobals.DBG_LEVEL >= 2);
 
-    // Time to display the  DisplayInfo Record sent by CDMA network
-    private static final int DISPLAYINFO_NOTIFICATION_TIME = 2000; // msec
+    // Time to display the message from the underlying phone layers.
+    private static final int SHOW_MESSAGE_NOTIFICATION_TIME = 3000; // msec
 
     private static final AudioAttributes VIBRATION_ATTRIBUTES = new AudioAttributes.Builder()
             .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
@@ -88,10 +92,7 @@ public class CallNotifier extends Handler {
     private Object mCallerInfoQueryStateGuard = new Object();
 
     // Events generated internally:
-    private static final int PHONE_MWI_CHANGED = 21;
-    private static final int DISPLAYINFO_NOTIFICATION_DONE = 24;
-    private static final int UPDATE_IN_CALL_NOTIFICATION = 27;
-
+    private static final int ACTION_SUBINFO_RECORD_UPDATED = 28;
 
     private PhoneGlobals mApplication;
     private CallManager mCM;
@@ -112,6 +113,8 @@ public class CallNotifier extends Handler {
     private AudioManager mAudioManager;
 
     private final BluetoothManager mBluetoothManager;
+
+    private PhoneStateListener[] mPhoneStateListener;
 
     /**
      * Initialize the singleton CallNotifier instance.
@@ -150,8 +153,31 @@ public class CallNotifier extends Handler {
                                     BluetoothProfile.HEADSET);
         }
 
+        int phoneCount = TelephonyManager.getDefault().getPhoneCount();
+        mPhoneStateListener = new PhoneStateListener[phoneCount];
         listen();
+        IntentFilter filter = new IntentFilter(TelephonyIntents.ACTION_SUBINFO_RECORD_UPDATED);
+        mApplication.getApplicationContext().registerReceiver(mBroadcastReceiver, filter);
     }
+
+    private void unRegisterPhoneStateListener() {
+        for (int i = 0 ; i < TelephonyManager.getDefault().getPhoneCount(); i++) {
+            if (mPhoneStateListener[i] != null) {
+                TelephonyManager.getDefault().listen(mPhoneStateListener[i],
+                        PhoneStateListener.LISTEN_NONE);
+            }
+        }
+    }
+
+    private final BroadcastReceiver mBroadcastReceiver = new BroadcastReceiver() {
+        public void onReceive(Context context, Intent intent) {
+            final String action = intent.getAction();
+            if (action.equals(TelephonyIntents.ACTION_SUBINFO_RECORD_UPDATED)) {
+                log("onReceive... ");
+                sendEmptyMessage(ACTION_SUBINFO_RECORD_UPDATED);
+            }
+        }
+    };
 
     private void listen() {
         TelephonyManager telephonyManager = (TelephonyManager)mApplication.getSystemService(
@@ -204,9 +230,9 @@ public class CallNotifier extends Handler {
                 onUnknownConnectionAppeared((AsyncResult) msg.obj);
                 break;
 
-            case PHONE_MWI_CHANGED:
+            case CallStateMonitor.INTERNAL_PHONE_MWI_CHANGED:
                 Phone phone = (Phone)msg.obj;
-                onMwiChanged(phone.getMessageWaitingIndicator(), phone);
+                onMwiChanged(mApplication.phone.getMessageWaitingIndicator(), phone);
                 break;
 
             case CallStateMonitor.PHONE_STATE_DISPLAYINFO:
@@ -219,9 +245,9 @@ public class CallNotifier extends Handler {
                 onSignalInfo((AsyncResult) msg.obj);
                 break;
 
-            case DISPLAYINFO_NOTIFICATION_DONE:
+            case CallStateMonitor.INTERNAL_SHOW_MESSAGE_NOTIFICATION_DONE:
                 if (DBG) log("Received Display Info notification done event ...");
-                CdmaDisplayInfo.dismissDisplayInfoRecord();
+                PhoneDisplayMessage.dismissMessage();
                 break;
 
             case CallStateMonitor.EVENT_OTA_PROVISION_CHANGE:
@@ -247,6 +273,17 @@ public class CallNotifier extends Handler {
                 }
                 break;
 
+            case ACTION_SUBINFO_RECORD_UPDATED:
+                if (DBG) log("ACTION_SUBINFO_RECORD_UPDATED...");
+                unRegisterPhoneStateListener();
+                listen();
+                break;
+
+            case CallStateMonitor.PHONE_SUPP_SERVICE_FAILED:
+                if (DBG) log("PHONE_SUPP_SERVICE_FAILED...");
+                onSuppServiceFailed((AsyncResult) msg.obj);
+                break;
+
             default:
                 // super.handleMessage(msg);
         }
@@ -255,7 +292,7 @@ public class CallNotifier extends Handler {
     private PhoneStateListener getPhoneStateListener(int phoneId) {
         long[] subId = SubscriptionManager.getSubId(phoneId);
 
-        PhoneStateListener phoneStateListener = new PhoneStateListener(subId[0]) {
+        mPhoneStateListener[phoneId]  = new PhoneStateListener(subId[0]) {
             @Override
             public void onMessageWaitingIndicatorChanged(boolean mwi) {
                 Phone phone = PhoneUtils.getPhoneFromSubId(mSubId);
@@ -268,7 +305,7 @@ public class CallNotifier extends Handler {
                 onCfiChanged(cfi, phone);
             }
         };
-        return phoneStateListener;
+        return mPhoneStateListener[phoneId];
     }
 
     /**
@@ -500,7 +537,8 @@ public class CallNotifier extends Handler {
         }
 
         int autoretrySetting = 0;
-        if ((c != null) && (c.getCall().getPhone().getPhoneType() == PhoneConstants.PHONE_TYPE_CDMA)) {
+        if ((c != null) &&
+                (c.getCall().getPhone().getPhoneType() == PhoneConstants.PHONE_TYPE_CDMA)) {
             autoretrySetting = android.provider.Settings.Global.getInt(mApplication.
                     getContentResolver(),android.provider.Settings.Global.CALL_AUTO_RETRY, 0);
         }
@@ -508,7 +546,8 @@ public class CallNotifier extends Handler {
         // Stop any signalInfo tone being played when a call gets ended
         stopSignalInfoTone();
 
-        if ((c != null) && (c.getCall().getPhone().getPhoneType() == PhoneConstants.PHONE_TYPE_CDMA)) {
+        if ((c != null) &&
+                (c.getCall().getPhone().getPhoneType() == PhoneConstants.PHONE_TYPE_CDMA)) {
             // Resetting the CdmaPhoneCallState members
             mApplication.cdmaPhoneCallState.resetCdmaPhoneCallState();
         }
@@ -647,7 +686,7 @@ public class CallNotifier extends Handler {
      * failed NotificationMgr.updateMwi() call.
      */
     /* package */ void sendMwiChangedDelayed(long delayMillis, Phone phone) {
-        Message message = Message.obtain(this, PHONE_MWI_CHANGED, phone);
+        Message message = Message.obtain(this, CallStateMonitor.INTERNAL_PHONE_MWI_CHANGED, phone);
         sendMessageDelayed(message, delayMillis);
     }
 
@@ -931,12 +970,34 @@ public class CallNotifier extends Handler {
         if (displayInfoRec != null) {
             String displayInfo = displayInfoRec.alpha;
             if (DBG) log("onDisplayInfo: displayInfo=" + displayInfo);
-            CdmaDisplayInfo.displayInfoRecord(mApplication, displayInfo);
+            PhoneDisplayMessage.displayNetworkMessage(mApplication, displayInfo);
 
-            // start a 2 second timer
-            sendEmptyMessageDelayed(DISPLAYINFO_NOTIFICATION_DONE,
-                    DISPLAYINFO_NOTIFICATION_TIME);
+            // start a timer that kills the dialog
+            sendEmptyMessageDelayed(CallStateMonitor.INTERNAL_SHOW_MESSAGE_NOTIFICATION_DONE,
+                    SHOW_MESSAGE_NOTIFICATION_TIME);
         }
+    }
+
+    /**
+     * Displays a notification when the phone receives a notice that a supplemental
+     * service has failed.
+     * TODO: This is a NOOP if it isn't for conferences right now.
+     */
+    private void onSuppServiceFailed(AsyncResult r) {
+        if (r.result != Phone.SuppService.CONFERENCE) {
+            if (DBG) log("onSuppServiceFailed: not a merge failure event");
+            return;
+        }
+
+        if (DBG) log("onSuppServiceFailed: displaying merge failure message");
+
+        String mergeFailedString = mApplication.getResources().getString(
+                R.string.incall_error_supp_service_conference);
+        PhoneDisplayMessage.displayErrorMessage(mApplication, mergeFailedString);
+
+        // start a timer that kills the dialog
+        sendEmptyMessageDelayed(CallStateMonitor.INTERNAL_SHOW_MESSAGE_NOTIFICATION_DONE,
+                SHOW_MESSAGE_NOTIFICATION_TIME);
     }
 
     /**
